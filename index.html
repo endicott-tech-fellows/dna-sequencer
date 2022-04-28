@@ -1,0 +1,282 @@
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="css/main.css">
+        <title>Endicott College Bioinformatics: VCF2FA</title>
+    </head>
+
+    <body>
+        <h1>Endicott College Bioinformatics: VCF2FA</h1>
+        <ul>
+            <li>Start by uploading the VCF file that you wish to use</li>
+            <li>The FASTA file will automatically be pulled from the database and will begin modifying the sequence</li>
+            <li>Then click on the "Download Updated FASTA" button to obtain the altered sequence</li>
+        </ul>
+        <label id="vcf-label" for="vcf-file">Select a VCF file:</label>
+        <input type="file" id="vcf-file" onchange="loadGeneFile(this.files[0])">
+        <button id="download-button" onclick="downloadUpdatedFasta()">Download Updated FASTA</button>
+        
+        <table id="data-table">
+            <tr>
+                <th>CHROM</th>
+                <th>POS</th>
+                <th>ID</th>
+                <th>REF</th>
+                <th>ALT</th>
+                <th>QUAL</th>
+                <th>FILTER</th>
+                <th>INFO</th>
+                <th>FORMAT</th>
+                <th>VALUES</th>
+            </tr>
+        </table>
+    </body>
+
+    <script>
+        var geneText;       //Holds the entire string of new changes needed to the sequence
+        var fastaText;      //Holds the entire string of genes (gcat)
+        var counter = 0;    //Counter for the indexes in each of the columns of data
+        var index = 0;      //Counter for the character index we are in per line of text
+        var lines = [];     //Storage for each line of the geneText
+        var newFastaText = "";   //The storage for the newly created gene sequence
+
+        //Variables to hold each column of data for the table
+        var chromo = [];
+        var position = [];
+        var id = [];
+        var ref = [];
+        var alt = [];
+        var qual = [];
+        var filter = [];
+        var info = [];
+        var format = [];
+        var values = [];
+
+        //HTML variables
+        var txtArea;
+        var dataTable;
+
+        //Grab the chunk of text from the Gene file and save it to a variable
+        async function loadGeneFile(file) {
+            geneText = await file.text();
+            createTable();
+            
+            var theGene = chromo[0];
+            var FastaURL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=" + theGene + "&rettype=fasta&retmode=text";
+            downloadFastaFile(FastaURL);
+
+            var ind = 0;
+            fastaText = fastaText.replace(/\s/g,'');   //Remove all spaces
+
+            //Remove the inital text of the DNA
+            for(let i = 0; i < fastaText.length; i++) {
+                if(checkForSequence(fastaText.charAt(i), fastaText.charAt(i+1), fastaText.charAt(i+2))) {
+                    ind++;
+                }
+                else {
+                    break;
+                }
+            }
+            fastaText = fastaText.slice(ind, fastaText.length);
+            fastaText = fastaText.toLowerCase();
+            parseFile();
+
+            //Following code will peice back together the sequence
+            
+            
+            var downloadText = "";
+            var numBlocks = 0; //Value helps calculate how many blocks of 10 are in a line (We reset when we hit 7)
+            for(let i = 0; i < newFastaText.length; i++) {
+                if(newFastaText.charAt(i) == "\r") {
+                    continue;
+                }
+                //This would be block 7 and we should insert a newline
+                if(i != 0 && i % 10 == 0 && numBlocks == 6) {
+                    console.log("Breaking at " + i + "Text: " + downloadText);
+                    numBlocks = 0;
+                    downloadText += "\n";
+                }
+                //Every 10 characters we have a new block
+                else if(i != 0 && i % 10 == 0) {
+                    numBlocks++;
+                }
+                
+                downloadText += newFastaText.charAt(i);
+                console.log(newFastaText.charAt(i), newFastaText.charCodeAt(i));
+            }
+            newFastaText = ">" + chromo[0] + "_alternate" + "\n" + downloadText;
+            newFastaText = newFastaText.trim();
+            console.log(newFastaText);
+        }
+
+        //Downloads FASTA file and returns content of the sheet
+        //Code provided by: https://stackoverflow.com/questions/10642289/return-html-content-as-a-string-given-url-javascript-function
+        function downloadFastaFile(theUrl) {
+            if (window.XMLHttpRequest) {
+                xmlhttp=new XMLHttpRequest();
+            }
+            else {
+                xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
+            }
+
+            xmlhttp.onreadystatechange=function() {
+                if (xmlhttp.readyState==4 && xmlhttp.status==200) {
+                    fastaText = xmlhttp.responseText;
+                }
+            }
+            xmlhttp.open("GET", theUrl, false );
+            xmlhttp.send();  
+        }
+
+        //Function runs to weed out the beginning text of a gene file by checking 3 letters together that match GTAC
+        function checkForSequence(char1, char2, char3) {
+            if(char1 == "G" || char1 == "C" || char1 == "A" || char1 == "T") {
+                if(char2 == "G" || char2 == "C" || char2 == "A" || char2 == "T") {
+                    if(char3 == "G" || char3 == "C" || char3 == "A" || char3 == "T") {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        //Generate the standing table with the correct values
+        function createTable() {
+            //Grab text area to display results
+            //txtArea = document.getElementById("text-bin");
+            dataTable = document.getElementById("data-table");
+
+            //Split up the lines
+            lines = geneText.split('\n');
+
+            
+            //Loop through each line and check to see if they have the '#' symbol, otherwise it's a row with data we need
+            for(var i = 0; i < lines.length; i++) {
+                if(lines[i].charAt(0) != "#" && lines[i]) {
+                    index = 0;
+                    index = captureData(lines[i], index, chromo);
+                    index = captureData(lines[i], index, position);
+                    index = captureData(lines[i], index, id);
+                    index = captureData(lines[i], index, ref);
+                    index = captureData(lines[i], index, alt);
+                    index = captureData(lines[i], index, qual);
+                    index = captureData(lines[i], index, filter);
+                    index = captureData(lines[i], index, info);
+                    index = captureData(lines[i], index, format);
+                    index = captureData(lines[i], index, values);  
+                    counter++;
+                }
+            }
+            generateTableCode();
+        }
+
+        //Takes in an array to add in the data
+        function captureData(rowOfText, index, dataObject) {
+            var slot = index;
+            var char = rowOfText.charAt(slot);
+            var data = "";
+
+            //Make sure we take in only valid characters
+            while(char == " " || char == "\t" || char == "\n") {
+                slot++;
+                char = rowOfText.charAt(slot);
+            }
+
+            //Scan through the "segment" of data
+            while(char != " " && char != "\t" && char != "\n" && char != null && slot != rowOfText.length) {
+                data += char;
+                slot++;
+                char = rowOfText.charAt(slot);
+            }
+            dataObject[counter] = data;
+            return slot;
+        }
+
+        //Generates the HTML code to format the table and then inserts in the data
+        function generateTableCode() {
+            var row, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10;
+
+            for(let i = 0; i < counter; i++) {
+                row = dataTable.insertRow();
+                c1 = row.insertCell();
+                c2 = row.insertCell();
+                c3 = row.insertCell();
+                c4 = row.insertCell();
+                c5 = row.insertCell();
+                c6 = row.insertCell();
+                c7 = row.insertCell();
+                c8 = row.insertCell();
+                c9 = row.insertCell();
+                c10 = row.insertCell();
+
+                c1.innerHTML = chromo[i];
+                c2.innerHTML = position[i];
+                c3.innerHTML = id[i];
+                c4.innerHTML = ref[i];
+                c5.innerHTML = alt[i];
+                c6.innerHTML = qual[i];
+                c7.innerHTML = filter[i];
+                c8.innerHTML = info[i];
+                c9.innerHTML = format[i];
+                c10.innerHTML = values[i];
+            }
+        }
+
+        //Takes the sequence and replaces a character at an index specified in the ALT data
+        //Index 0 will be char 1 in the string
+        //We want to go to the spot where the position is, which is why we go to pos[]-1
+        function parseFile() {
+            console.log(fastaText);
+            var pos = +0;
+            var lastPos = +0;
+            var letters = "";
+            var newString = "";
+            for(let i = 0; i < counter; i++) {
+                letters = alt[i];
+                letters.toUpperCase();
+                pos = +position[i] - 1;
+                newString = fastaText.substring(lastPos, pos);
+                newString = newString + letters;
+                lastPos = pos + ref.length - alt.length + 1;
+                newFastaText = newFastaText + newString;
+            }
+            newString = fastaText.substring(lastPos, fastaText.length);
+            newFastaText = newFastaText + newString;
+        }
+
+        //Function allows the user to download the new FASTA file
+        //Code originated from: https://www.bitdegree.org/learn/javascript-download#
+        function downloadUpdatedFasta() {
+            var fileName = "alternate-" + chromo[0] + ".fa";
+            var element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(newFastaText));
+            element.setAttribute('download', fileName);
+
+            element.style.display = 'none';
+            document.body.appendChild(element);
+
+            element.click();
+
+            document.body.removeChild(element);
+        }
+
+        //Function no longer in use, prints out the contents of each array to a text area for testing
+        function printToTextArea() {
+            for(var j = 0; j < counter; j++) {
+                txtArea.textContent += chromo[j] + "  ";
+                txtArea.textContent += position[j] + "  ";
+                txtArea.textContent += id[j] + "  ";
+                txtArea.textContent += ref[j] + "  ";
+                txtArea.textContent += alt[j] + "  ";
+                txtArea.textContent += qual[j] + "  ";
+                txtArea.textContent += filter[j] + "  ";
+                txtArea.textContent += info[j] + "  ";
+                txtArea.textContent += format[j] + "  ";
+                txtArea.textContent += values[j] + "  ";
+                txtArea.textContent += "\n";
+            }
+        }
+
+        //Fix the insertion
+        //fix table delete
+    </script>
+</html>
